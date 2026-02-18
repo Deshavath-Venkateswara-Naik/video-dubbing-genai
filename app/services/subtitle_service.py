@@ -27,3 +27,4 @@ def create_srt(video_duration, telugu_text, output_path):
             srt.write(sentence.strip() + "\n\n")
 
             current_time = end
+

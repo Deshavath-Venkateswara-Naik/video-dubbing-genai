@@ -1,4 +1,6 @@
 from app.pipeline import run_pipeline
 
+import asyncio
+
 if __name__ == "__main__":
-    run_pipeline()
+    asyncio.run(run_pipeline())

@@ -6,3 +6,16 @@ pydub
 nltk
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
+torchaudio
+edge-tts
+ffmpeg-python
+librosa
+numpy
+resemblyzer
+scikit-learn
+pyannote.audio
+requests
+speechbrain
+transformers
+accelerate
+google-generativeai

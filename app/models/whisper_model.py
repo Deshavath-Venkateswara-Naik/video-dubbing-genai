@@ -9,8 +9,12 @@ def transcribe_audio(model, audio_path):
     segments_gen, info = model.transcribe(audio_path)
     segments = list(segments_gen)
 
-    full_text = ""
+    result = []
     for segment in segments:
-        full_text += segment.text.strip() + " "
+        result.append({
+            "start": segment.start,
+            "end": segment.end,
+            "text": segment.text.strip()
+        })
 
-    return full_text
+    return result
