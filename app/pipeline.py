@@ -3,7 +3,7 @@ import os
 from app.config import *
 from app.models.whisper_model import load_whisper, transcribe_audio
 from app.models.translator_model import translate_to_telugu
-from app.services.audio_service import extract_audio
+from app.services.audio_service import extract_audio, adjust_audio_speed
 from app.services.subtitle_service import create_srt
 from app.services.tts_service import generate_audio_segment
 from app.services.video_service import merge_audio_with_video
@@ -35,6 +35,7 @@ async def run_pipeline():
         print(f"Generating TTS {i+1}/{len(text_segments)}")
 
         start = seg['start']
+        end = seg['end']
         english_text = seg['text']
 
         gender = gender_map.get(i, "MALE")
@@ -42,16 +43,21 @@ async def run_pipeline():
         telugu_text = translate_to_telugu(english_text)
 
         seg_filename = f"{temp_dir}/seg_{i}_{gender}.mp3"
+        adjusted_filename = f"{temp_dir}/seg_{i}_{gender}_adjusted.mp3"
 
         # ✅ Generate TTS ONE BY ONE (no parallel calls)
         await generate_audio_segment(telugu_text, gender, seg_filename)
+
+        # ✅ Adjust Speed to Sync
+        target_duration = end - start
+        adjust_audio_speed(seg_filename, adjusted_filename, target_duration)
 
         # small delay to avoid Murf 429 rate limit
         await asyncio.sleep(1.5)
 
         final_segments.append({
             "start": start,
-            "audio_path": seg_filename,
+            "audio_path": adjusted_filename,
             "text": telugu_text
         })
 
