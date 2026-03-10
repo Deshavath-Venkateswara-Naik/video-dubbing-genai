@@ -2,10 +2,12 @@ from moviepy import VideoFileClip
 import subprocess
 import os
 
+
 def extract_audio(video_path, audio_path):
     video = VideoFileClip(video_path)
     video.audio.write_audiofile(audio_path)
     return video
+
 
 def get_audio_duration(file_path):
     """
@@ -25,48 +27,30 @@ def get_audio_duration(file_path):
         print(f"Error getting duration for {file_path}: {e}")
         return 0.0
 
-def adjust_audio_speed(input_path, output_path, target_duration):
+
+def adjust_audio_speed(input_path, output_path, ratio):
     """
-    Adjusts the speed of the audio file to match the target duration.
-    Uses ffmpeg 'atempo' filter.
-    """
-    current_duration = get_audio_duration(input_path)
+    Adjusts the speed of audio by the given ratio.
+    Only called when 0.85 < ratio < 1.15 (small correction).
     
-    if current_duration == 0 or target_duration <= 0:
-        print(f"Invalid duration: current={current_duration}, target={target_duration}. Copying original.")
-        # Fallback: copy file
+    ratio = generated_duration / target_duration
+    e.g. ratio=1.1 means TTS is 10% too long → speed up by 1.1×
+    """
+    if abs(ratio - 1.0) < 0.02:
+        # Less than 2% — no correction needed, just copy
         subprocess.run(["cp", input_path, output_path], check=True)
         return
 
-    # Calculate speed factor
-    speed_factor = current_duration / target_duration
-    
-    # ffmpeg 'atempo' filter is limited to [0.5, 2.0].
-    # Chain filters if outside this range.
-    filter_chain = []
-    remaining_factor = speed_factor
-    
-    while remaining_factor > 2.0:
-        filter_chain.append("atempo=2.0")
-        remaining_factor /= 2.0
-        
-    while remaining_factor < 0.5:
-        filter_chain.append("atempo=0.5")
-        remaining_factor /= 0.5
-        
-    filter_chain.append(f"atempo={remaining_factor}")
-    
-    filter_str = ",".join(filter_chain)
-    
+    # ffmpeg atempo filter (supports [0.5, 2.0] range — our ratio is always 0.85-1.15)
     cmd = [
         "ffmpeg", "-y",
         "-i", input_path,
-        "-filter:a", filter_str,
+        "-filter:a", f"atempo={ratio:.4f}",
         "-vn",
         output_path
     ]
     
-    print(f"Adjusting speed: {current_duration:.2f}s -> {target_duration:.2f}s (Factor: {speed_factor:.2f})")
+    print(f"  🔧 Speed correction: atempo={ratio:.3f}")
     
     try:
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)

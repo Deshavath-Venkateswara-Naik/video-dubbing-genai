@@ -19,6 +19,9 @@ MAX_CHARS = 2000
 
 
 HF_TOKEN = os.getenv("HF_TOKEN")
+GEMINI_API_KEY = os.getenv("Gemini_API_Key")
 
 DEVICE = "cpu"
 
+# ── TTS Speed Balancing ──
+TELUGU_CHARS_PER_SEC = 5.0        # Avg Telugu characters spoken per second by Murf TTS
