@@ -21,3 +21,4 @@ sentencepiece
 sacremoses
 protobuf
 IndicTransToolkit
+google-genai
