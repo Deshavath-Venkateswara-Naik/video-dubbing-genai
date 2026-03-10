@@ -25,6 +25,27 @@ VOICE_MAP = {
     "FEMALE": "en-US-josie"
 }
 
+# Unique voice pools for diarization
+MALE_VOICE_POOL = [
+    "en-US-zion",
+    "en-US-carter",
+    "en-US-miles",
+    "en-UK-peter",
+    "en-AU-leyton",
+    "en-US-ronnie",
+    "en-UK-freddie"
+]
+
+FEMALE_VOICE_POOL = [
+    "en-US-josie",
+    "en-US-natalie",
+    "en-US-samantha",
+    "en-UK-hazel",
+    "en-UK-juliet",
+    "en-AU-ivy",
+    "en-US-natalie"
+]
+
 # ==============================
 # Sync Murf API Call
 # ==============================
@@ -87,13 +108,11 @@ def _generate_audio_sync(text, voice_id, output_path):
 # Async Wrapper (Non-blocking)
 # ==============================
 
-async def generate_audio_segment(text, gender, output_path):
+async def generate_audio_segment(text, voice_id, output_path):
     """
     Async wrapper for Murf TTS.
     Runs blocking HTTP request in background thread.
     """
-
-    voice_id = VOICE_MAP.get(gender, VOICE_MAP["MALE"])
 
     # Run sync Murf call in separate thread
     await asyncio.to_thread(_generate_audio_sync, text, voice_id, output_path)

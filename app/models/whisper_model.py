@@ -18,3 +18,9 @@ def transcribe_audio(model, audio_path):
         })
 
     return result
+
+def transcribe_chunk(model, chunk_path):
+    segments_gen, info = model.transcribe(chunk_path)
+    segments = list(segments_gen)
+    text = " ".join([s.text.strip() for s in segments])
+    return text.strip()

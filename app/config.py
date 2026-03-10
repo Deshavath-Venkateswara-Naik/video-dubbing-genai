@@ -4,8 +4,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("Gemini_API_Key")
-
 VIDEO_PATH = "data/input/video.mp4"
 
 AUDIO_PATH = "data/output/audio.wav"
