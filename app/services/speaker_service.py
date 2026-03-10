@@ -58,17 +58,16 @@ class SpeakerManager:
                     self.gender_overrides[speaker] = gender
                     logger.info(f"Loaded override: {speaker} -> {gender}")
 
-    def process_segments(self, audio_path, text_segments):
+    def get_diarized_segments(self, audio_path):
         """
         1. Run Diarization on audio_path
-        2. Map Whisper text segments to speakers
-        3. Collect audio segments per speaker
-        4. Detect gender per speaker (merged audio)
-        5. Return mapping
+        2. Group consecutive segments by speaker if they are very close
+        3. Detect gender per speaker
+        4. Return list of diarized turns with speaker and gender
         """
         if not self.pipeline:
-            logger.error("Pipeline not initialized. Returning default MALE for all.")
-            return {i: "MALE" for i in range(len(text_segments))}
+            logger.error("Pipeline not initialized.")
+            return []
 
         # 1. Run Diarization
         logger.info(f"Diarizing audio: {audio_path}...")
@@ -78,7 +77,7 @@ class SpeakerManager:
                  diarization = diarization.speaker_diarization
         except Exception as e:
             logger.error(f"Diarization failed: {e}")
-            return {i: "MALE" for i in range(len(text_segments))}
+            return []
 
         speaker_timeline = []
         for turn, _, speaker in diarization.itertracks(yield_label=True):
@@ -88,85 +87,69 @@ class SpeakerManager:
                 "speaker": speaker
             })
 
-        # 2. Map Text Segments to Speakers / Identify Speakers
-        # We need to know which speakers exist and what segments they own
-        segment_speaker_map = {} # segment_index -> speaker_label
-        speaker_segments = {} # speaker_label -> list of (start, end) tuples
-        
-        for i, seg in enumerate(text_segments):
-            seg_start = seg['start']
-            seg_end = seg['end']
-            
-            # Find dominant speaker for this segment
-            speaker = self._get_dominant_speaker(seg_start, seg_end, speaker_timeline)
-            segment_speaker_map[i] = speaker
-            
-            if speaker != "UNKNOWN":
-                if speaker not in speaker_segments:
-                    speaker_segments[speaker] = []
-                speaker_segments[speaker].append((seg_start, seg_end))
+        if not speaker_timeline:
+            return []
 
-        # 3. Detect Gender Per Speaker
+        # 2. Group consecutive segments by same speaker if gap is small
+        # This prevents over-segmentation for small pauses
+        grouped_timeline = []
+        if speaker_timeline:
+            current = speaker_timeline[0].copy()
+            for i in range(1, len(speaker_timeline)):
+                next_seg = speaker_timeline[i]
+                gap = next_seg['start'] - current['end']
+                
+                if next_seg['speaker'] == current['speaker'] and gap < 0.5:
+                    current['end'] = next_seg['end']
+                else:
+                    grouped_timeline.append(current)
+                    current = next_seg.copy()
+            grouped_timeline.append(current)
+
+        # 3. Collect unique speakers and detect gender
+        speaker_segments = {}
+        for seg in grouped_timeline:
+            spk = seg['speaker']
+            if spk not in speaker_segments:
+                speaker_segments[spk] = []
+            speaker_segments[spk].append((seg['start'], seg['end']))
+
         speaker_gender_map = {}
-        
-        # Load audio once to extract chunks
         full_audio = AudioSegment.from_file(audio_path)
-        
         temp_dir = "data/temp_gender"
         os.makedirs(temp_dir, exist_ok=True)
-        
+
         for speaker, time_ranges in speaker_segments.items():
-            # Check override first
             if speaker in self.gender_overrides:
                 speaker_gender_map[speaker] = self.gender_overrides[speaker]
-                logger.info(f"Speaker {speaker} using override: {speaker_gender_map[speaker]}")
                 continue
-                
-            # Extract and merge audio segments for this speaker
-            speaker_audio_paths = []
-            
-            # Limit to e.g., first 5 segments or total 10 seconds to save time/space if needed
-            # But user requested "merged audio", implying utilizing available data for better accuracy.
-            # We'll extract all segments assigned to this speaker.
-            
+
             combined_audio = AudioSegment.empty()
             total_duration = 0
-            
             for start, end in time_ranges:
-                # pydub works in millis
                 start_ms = int(start * 1000)
                 end_ms = int(end * 1000)
-                chunk = full_audio[start_ms:end_ms]
-                combined_audio += chunk
+                combined_audio += full_audio[start_ms:end_ms]
                 total_duration += (end - start)
-                
-                # Optimization: If we have enough audio (e.g. 30s), strictly sufficient for detection
-                if total_duration > 30: 
-                    break
-            
-            # Save merged file
-            merged_filename = f"{temp_dir}/{speaker}_merged.wav"
-            combined_audio.export(merged_filename, format="wav")
-            
-            # 4. Run Detection
-            detected_gender = self.gender_classifier.detect_gender(
-                [merged_filename], 
-                min_duration=2.0 # Increase min duration as requested
-            )
-            
-            speaker_gender_map[speaker] = detected_gender
-            logger.info(f"Speaker {speaker} ({total_duration:.2f}s audio) -> Detected: {detected_gender}")
-            
-            # Cleanup
-            if os.path.exists(merged_filename):
-                os.remove(merged_filename)
+                if total_duration > 20: break # Enough for detection
 
-        # 5. Build final map
-        final_gender_map = {}
-        for i, speaker in segment_speaker_map.items():
-            final_gender_map[i] = speaker_gender_map.get(speaker, "MALE") # Default fallback
-            
-        return final_gender_map
+            merged_filename = f"{temp_dir}/{speaker}_merged_diarized.wav"
+            combined_audio.export(merged_filename, format="wav")
+            detected_gender = self.gender_classifier.detect_gender([merged_filename], min_duration=2.0)
+            speaker_gender_map[speaker] = detected_gender
+            if os.path.exists(merged_filename): os.remove(merged_filename)
+
+        # 4. Final list of turns
+        final_turns = []
+        for seg in grouped_timeline:
+            final_turns.append({
+                "start": seg['start'],
+                "end": seg['end'],
+                "speaker": seg['speaker'],
+                "gender": speaker_gender_map.get(seg['speaker'], "MALE")
+            })
+
+        return final_turns
 
     def _get_dominant_speaker(self, start, end, timeline):
         """

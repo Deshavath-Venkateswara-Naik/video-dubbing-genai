@@ -1,6 +1,5 @@
 moviepy
 faster-whisper
-deep-translator
 gtts
 pydub
 nltk
@@ -18,4 +17,7 @@ requests
 speechbrain
 transformers
 accelerate
-google-generativeai
+sentencepiece
+sacremoses
+protobuf
+IndicTransToolkit

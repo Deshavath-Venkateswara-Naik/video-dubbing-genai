@@ -1,54 +1,94 @@
 import asyncio
 import os
 from app.config import *
-from app.models.whisper_model import load_whisper, transcribe_audio
+from pydub import AudioSegment
+from app.models.whisper_model import load_whisper, transcribe_audio, transcribe_chunk
 from app.models.translator_model import translate_to_telugu
 from app.services.audio_service import extract_audio, adjust_audio_speed
 from app.services.subtitle_service import create_srt
-from app.services.tts_service import generate_audio_segment
+from app.services.tts_service import generate_audio_segment, MALE_VOICE_POOL, FEMALE_VOICE_POOL, VOICE_MAP
 from app.services.video_service import merge_audio_with_video
 from app.services.speaker_service import SpeakerManager
 from app.services.audio_mixer import mix_audio
+from app.services.lipsync_service import LipSyncService
 
 
 async def run_pipeline():
+    # Ensure directories exist
+    os.makedirs("data/input", exist_ok=True)
+    os.makedirs("data/output", exist_ok=True)
+    os.makedirs("data/temp_tts", exist_ok=True)
+
     print("Step 1: Extracting audio...")
     video = extract_audio(VIDEO_PATH, AUDIO_PATH)
 
-    print("Step 2: Transcribing (Whisper)...")
-    model = load_whisper()
-    text_segments = transcribe_audio(model, AUDIO_PATH)
-
-    print("Step 3: Analyze Speakers & Gender...")
+    print("Step 2: Analyze Speakers & Diarization...")
     speaker_manager = SpeakerManager(auth_token=HF_TOKEN)
-    gender_map = speaker_manager.process_segments(AUDIO_PATH, text_segments)
+    diarized_turns = speaker_manager.get_diarized_segments(AUDIO_PATH)
 
-    print("Step 4: Translation & TTS...")
+    if not diarized_turns:
+        print("No speakers detected or diarization failed. Exiting.")
+        return
 
+    print(f"Step 3: Transcribing & Translating {len(diarized_turns)} speaker turns...")
+    whisper_model = load_whisper()
+    
+    speaker_voice_map = {}
+    male_count = 0
+    female_count = 0
     final_segments = []
     temp_dir = "data/temp_tts"
     os.makedirs(temp_dir, exist_ok=True)
+    
+    full_audio = AudioSegment.from_file(AUDIO_PATH)
 
-    print(f"Step 5: Generating {len(text_segments)} TTS segments sequentially...")
+    for i, turn in enumerate(diarized_turns):
+        start = turn['start']
+        end = turn['end']
+        speaker_id = turn['speaker']
+        gender = turn['gender']
 
-    for i, seg in enumerate(text_segments):
-        print(f"Generating TTS {i+1}/{len(text_segments)}")
+        print(f"Processing Turn {i+1}/{len(diarized_turns)}: {speaker_id} ({gender}) [{start:.2f}s - {end:.2f}s]")
 
-        start = seg['start']
-        end = seg['end']
-        english_text = seg['text']
+        # 1. Extract audio chunk for transcription
+        chunk_path = f"{temp_dir}/chunk_{i}.wav"
+        start_ms = int(start * 1000)
+        end_ms = int(end * 1000)
+        chunk = full_audio[start_ms:end_ms]
+        chunk.export(chunk_path, format="wav")
 
-        gender = gender_map.get(i, "MALE")
+        # 2. Transcribe chunk
+        english_text = transcribe_chunk(whisper_model, chunk_path)
+        if os.path.exists(chunk_path):
+            os.remove(chunk_path)
 
+        if not english_text.strip():
+            print(f"Skipping empty segment {i}")
+            continue
+
+        # 3. Assign unique voice if not already done
+        if speaker_id not in speaker_voice_map:
+            if gender == "MALE":
+                voice_id = MALE_VOICE_POOL[male_count % len(MALE_VOICE_POOL)]
+                male_count += 1
+            else:
+                voice_id = FEMALE_VOICE_POOL[female_count % len(FEMALE_VOICE_POOL)]
+                female_count += 1
+            speaker_voice_map[speaker_id] = voice_id
+            print(f"Assigned voice {voice_id} to {speaker_id} ({gender})")
+        
+        voice_id = speaker_voice_map[speaker_id]
+
+        # 4. Translate
         telugu_text = translate_to_telugu(english_text)
 
-        seg_filename = f"{temp_dir}/seg_{i}_{gender}.mp3"
-        adjusted_filename = f"{temp_dir}/seg_{i}_{gender}_adjusted.mp3"
+        seg_filename = f"{temp_dir}/seg_{i}_{speaker_id}.mp3"
+        adjusted_filename = f"{temp_dir}/seg_{i}_{speaker_id}_adjusted.mp3"
 
-        # ✅ Generate TTS ONE BY ONE (no parallel calls)
-        await generate_audio_segment(telugu_text, gender, seg_filename)
+        # 5. Generate TTS
+        await generate_audio_segment(telugu_text, voice_id, seg_filename)
 
-        # ✅ Adjust Speed to Sync
+        # 6. Adjust Speed to Sync
         target_duration = end - start
         adjust_audio_speed(seg_filename, adjusted_filename, target_duration)
 
@@ -61,10 +101,24 @@ async def run_pipeline():
             "text": telugu_text
         })
 
-    print("Step 6: Mixing Audio...")
+    print("Step 4: Mixing Audio...")
     mix_audio(final_segments, video.duration, TELUGU_AUDIO_PATH)
 
-    print("Step 7: Merging final video...")
+    print("Step 5: Merging final video...")
     merge_audio_with_video(video, TELUGU_AUDIO_PATH, FINAL_VIDEO_PATH)
+
+    print("Step 8: LipSync (Wav2Lip)...")
+    lipsync_service = LipSyncService()
+    if lipsync_service.is_model_available():
+        LIP_SYNC_OUTPUT = "data/output/final_dubbed_synced.mp4"
+        success = await lipsync_service.sync_lips(FINAL_VIDEO_PATH, TELUGU_AUDIO_PATH, LIP_SYNC_OUTPUT)
+        if success:
+            import shutil
+            shutil.move(LIP_SYNC_OUTPUT, FINAL_VIDEO_PATH)
+            print(f"LipSync completed! Final video: {FINAL_VIDEO_PATH}")
+        else:
+            print("LipSync failed or was skipped. Using non-synced video.")
+    else:
+        print("Wav2Lip model weights not found. Skipping LipSync step.")
 
     print("\n🎬 ✅ Final dubbed video saved successfully!")
