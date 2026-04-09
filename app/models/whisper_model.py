@@ -6,7 +6,16 @@ def load_whisper():
     return model
 
 def transcribe_audio(model, audio_path):
-    segments_gen, info = model.transcribe(audio_path)
+    """
+    Transcribes audio and returns segments with start, end, and text.
+    Uses sentence-level segmentation where possible.
+    """
+    segments_gen, info = model.transcribe(
+        audio_path, 
+        beam_size=5, 
+        word_timestamps=True, # Helps with better timing
+        initial_prompt="Transcribe the following dialogue."
+    )
     segments = list(segments_gen)
 
     result = []

@@ -18,10 +18,18 @@ MODEL_SIZE = "base"
 MAX_CHARS = 2000
 
 
+import torch
+
 HF_TOKEN = os.getenv("HF_TOKEN")
 GEMINI_API_KEY = os.getenv("Gemini_API_Key")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-DEVICE = "cpu"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+# ── Files for segments ──
+ENGLISH_SEGMENTS_FILE = "data/output/segments_english.json"
+TELUGU_SEGMENTS_FILE = "data/output/segments_telugu.json"
+POLISHED_TELUGU_FILE = "data/output/segments_telugu_polished.json"
 
 # ── TTS Speed Balancing ──
 TELUGU_CHARS_PER_SEC = 5.0        # Avg Telugu characters spoken per second by Murf TTS
