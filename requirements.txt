@@ -1,24 +1,26 @@
-moviepy
+# Web Server
+fastapi
+uvicorn
+python-dotenv
+python-multipart
+
+# AI Core (Transcription & Polishing)
 faster-whisper
-gtts
+openai
+deep-translator
+
+# Audio/Video Processing
+moviepy
 pydub
-nltk
---extra-index-url https://download.pytorch.org/whl/cpu
-torch
-torchaudio
-edge-tts
-ffmpeg-python
 librosa
 numpy
-resemblyzer
-scikit-learn
-pyannote.audio
+ffmpeg-python
 requests
-speechbrain
+
+# DL/Backend Models (Used by Whisper & LipSync)
+torch
+torchaudio
 transformers
 accelerate
-sentencepiece
-sacremoses
-protobuf
-IndicTransToolkit
-google-genai
+opencv-python
+tqdm
